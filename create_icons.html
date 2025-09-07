@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Icon Generator</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .icon { margin: 10px; border: 1px solid #ccc; }
+        canvas { display: block; margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <h1>Smart Cart Assistant Icon Generator</h1>
+    <p>Right-click on each icon below and "Save image as" to save the PNG files to the icons folder:</p>
+    
+    <div class="icon">
+        <h3>16x16 (icon16.png)</h3>
+        <canvas id="icon16" width="16" height="16"></canvas>
+    </div>
+    
+    <div class="icon">
+        <h3>32x32 (icon32.png)</h3>
+        <canvas id="icon32" width="32" height="32"></canvas>
+    </div>
+    
+    <div class="icon">
+        <h3>48x48 (icon48.png)</h3>
+        <canvas id="icon48" width="48" height="48"></canvas>
+    </div>
+    
+    <div class="icon">
+        <h3>128x128 (icon128.png)</h3>
+        <canvas id="icon128" width="128" height="128"></canvas>
+    </div>
+
+    <script>
+        // SVG content
+        const svgContent = `<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+                </linearGradient>
+            </defs>
+            <circle cx="64" cy="64" r="60" fill="url(#grad1)" stroke="#fff" stroke-width="2"/>
+            <rect x="35" y="45" width="50" height="35" rx="3" fill="white" stroke="none"/>
+            <path d="M30 45 L35 45 L40 25 L90 25" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="45" cy="90" r="4" fill="white"/>
+            <circle cx="75" cy="90" r="4" fill="white"/>
+            <path d="M95 35 L97 40 L102 38 L97 43 L99 48 L95 43 L91 48 L93 43 L88 38 L93 40 Z" fill="#FFD700"/>
+            <line x1="60" y1="55" x2="60" y2="70" stroke="#667eea" stroke-width="2"/>
+            <line x1="52.5" y1="62.5" x2="67.5" y2="62.5" stroke="#667eea" stroke-width="2"/>
+        </svg>`;
+
+        function createIcon(canvasId, size) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            const img = new Image();
+            img.onload = function() {
+                ctx.clearRect(0, 0, size, size);
+                ctx.drawImage(img, 0, 0, size, size);
+            };
+            
+            const blob = new Blob([svgContent], {type: 'image/svg+xml'});
+            const url = URL.createObjectURL(blob);
+            img.src = url;
+        }
+
+        // Create all icon sizes
+        createIcon('icon16', 16);
+        createIcon('icon32', 32);
+        createIcon('icon48', 48);
+        createIcon('icon128', 128);
+    </script>
+</body>
+</html>

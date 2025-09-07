@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Cart Assistant</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛒 Smart Cart Assistant</h1>
+            <p>AI-powered product search and cart assistant</p>
+        </div>
+
+        <div class="main-content">
+            <div class="input-section">
+                <label for="productRequest">What would you like to add to your cart?</label>
+                <textarea 
+                    id="productRequest" 
+                    placeholder="Example: Add a men's medium t-shirt under $25"
+                    rows="3"
+                ></textarea>
+            </div>
+
+            <div class="api-key-section">
+                <label for="apiKey">OpenAI API Key:</label>
+                <input type="password" id="apiKey" placeholder="sk-...">
+                <small>Your API key is stored locally and never shared</small>
+            </div>
+
+            <div class="button-section">
+                <button id="searchBtn" class="primary-btn">
+                    <span class="btn-text">🔍 Search & Add to Cart</span>
+                    <span class="loading" style="display: none;">⏳ Processing...</span>
+                </button>
+            </div>
+
+            <div id="status" class="status-section"></div>
+            
+            <div id="results" class="results-section"></div>
+        </div>
+
+        <div class="footer">
+            <p>Make sure you're logged into Amazon</p>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>
