@@ -178,6 +178,12 @@ body {
     border: 1px solid #bee5eb;
 }
 
+.status-warning {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
 .results-section {
     max-height: 200px;
     overflow-y: auto;

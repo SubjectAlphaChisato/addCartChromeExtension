@@ -65,7 +65,11 @@ searchBtn.addEventListener('click', async () => {
         // Step 2: Search for products on Amazon
         const searchResults = await searchProductsOnAmazon(parsedRequest, tab.id);
         
-        if (searchResults.length === 0) {
+        console.log('Search results received in popup:', searchResults);
+        console.log('Search results length:', searchResults ? searchResults.length : 'undefined');
+        
+        if (!searchResults || searchResults.length === 0) {
+            console.warn('No search results returned. Parsed request was:', parsedRequest);
             showStatus('No products found matching your criteria. Try a different search.', 'error');
             return;
         }
@@ -77,15 +81,42 @@ searchBtn.addEventListener('click', async () => {
         // Show results
         displayResults(addToCartResults);
         
-        if (addToCartResults.some(result => result.success)) {
-            showStatus('✅ Successfully added products to cart!', 'success');
+        const successCount = addToCartResults.filter(result => result.success).length;
+        const totalCount = addToCartResults.length;
+        
+        if (successCount === totalCount) {
+            showStatus('✅ Successfully added all products to cart!', 'success');
+        } else if (successCount > 0) {
+            showStatus(`⚠️ Added ${successCount} of ${totalCount} products. Please add remaining items manually.`, 'warning');
         } else {
-            showStatus('❌ Failed to add products to cart. Please try again.', 'error');
+            // Check if any products attempted PDP navigation
+            const pdpAttempts = addToCartResults.filter(result => 
+                result.error && result.error.includes('Connection lost')
+            );
+            
+            if (pdpAttempts.length > 0) {
+                showStatus('🔄 Extension navigated to product pages to add items. Check your cart for results!', 'info');
+            } else {
+                showStatus('💡 Found products but couldn\'t add automatically. Please click "Add to Cart" buttons manually.', 'info');
+            }
         }
 
     } catch (error) {
         console.error('Error:', error);
-        showStatus(`Error: ${error.message}`, 'error');
+        
+        // Provide user-friendly error messages
+        let userMessage = error.message;
+        if (error.message.includes('back/forward cache') || error.message.includes('message channel is closed')) {
+            userMessage = 'Connection lost with Amazon page. Please refresh the page and try again.';
+        } else if (error.message.includes('Failed to initialize extension')) {
+            userMessage = 'Extension failed to load properly. Please refresh the Amazon page and try again.';
+        } else if (error.message.includes('OpenAI API')) {
+            userMessage = 'AI service error. Please check your API key and try again.';
+        } else if (error.message.includes('No products found')) {
+            userMessage = 'No matching products found. Try using different search terms.';
+        }
+        
+        showStatus(`❌ ${userMessage}`, 'error');
     } finally {
         setLoadingState(false);
     }
@@ -142,38 +173,197 @@ Return only valid JSON, no additional text.`;
 
 // Search for products on Amazon
 async function searchProductsOnAmazon(parsedRequest, tabId) {
-    return new Promise((resolve, reject) => {
-        chrome.tabs.sendMessage(tabId, {
-            action: 'searchProducts',
-            data: parsedRequest
-        }, (response) => {
-            if (chrome.runtime.lastError) {
-                reject(new Error(chrome.runtime.lastError.message));
-            } else if (response && response.success) {
-                resolve(response.products || []);
-            } else {
-                reject(new Error(response?.error || 'Failed to search products'));
-            }
-        });
+    return new Promise(async (resolve, reject) => {
+        try {
+            // First, ensure content script is injected and ready
+            await ensureContentScriptReady(tabId);
+            
+            chrome.tabs.sendMessage(tabId, {
+                action: 'searchProducts',
+                data: parsedRequest
+            }, (response) => {
+                if (chrome.runtime.lastError) {
+                    const errorMessage = chrome.runtime.lastError.message;
+                    
+                    // Handle specific bfcache error
+                    if (errorMessage.includes('back/forward cache') || 
+                        errorMessage.includes('message channel is closed') ||
+                        errorMessage.includes('receiving end does not exist')) {
+                        
+                        console.log('Content script disconnected, attempting to reinject...');
+                        // Try to reinject content script and retry
+                        reinjectContentScriptAndRetry(tabId, parsedRequest, 'searchProducts')
+                            .then(resolve)
+                            .catch(reject);
+                    } else {
+                        reject(new Error(`Communication error: ${errorMessage}`));
+                    }
+                } else if (response && response.success) {
+                    resolve(response.products || []);
+                } else {
+                    reject(new Error(response?.error || 'Failed to search products'));
+                }
+            });
+        } catch (error) {
+            reject(error);
+        }
     });
 }
 
 // Add products to cart
 async function addProductsToCart(products, tabId) {
-    return new Promise((resolve, reject) => {
-        chrome.tabs.sendMessage(tabId, {
-            action: 'addToCart',
-            data: { products }
-        }, (response) => {
-            if (chrome.runtime.lastError) {
-                reject(new Error(chrome.runtime.lastError.message));
-            } else if (response) {
-                resolve(response.results || []);
+    return new Promise(async (resolve, reject) => {
+        try {
+            // First, ensure content script is injected and ready
+            await ensureContentScriptReady(tabId);
+            
+            chrome.tabs.sendMessage(tabId, {
+                action: 'addToCart',
+                data: { products }
+            }, async (response) => {
+                if (chrome.runtime.lastError) {
+                    const errorMessage = chrome.runtime.lastError.message;
+                    
+                    // Handle message channel closure (common with PDP navigation)
+                    if (errorMessage.includes('message channel closed') || 
+                        errorMessage.includes('asynchronous response') ||
+                        errorMessage.includes('back/forward cache') || 
+                        errorMessage.includes('receiving end does not exist')) {
+                        
+                        console.log('Message channel closed - checking storage for results...');
+                        
+                        // Wait a moment for content script to store results
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        
+                        // Try to retrieve results from storage
+                        const storedResults = await checkStorageForResults();
+                        if (storedResults) {
+                            resolve(storedResults);
+                        } else {
+                            // If no stored results, try to reinject and retry
+                            console.log('No stored results found, attempting to reinject...');
+                            reinjectContentScriptAndRetry(tabId, { products }, 'addToCart')
+                                .then(resolve)
+                                .catch(reject);
+                        }
+                    } else {
+                        reject(new Error(`Communication error: ${errorMessage}`));
+                    }
+                } else if (response) {
+                    resolve(response.results || []);
+                } else {
+                    reject(new Error('Failed to add products to cart'));
+                }
+            });
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
+// Check storage for results when message channel is closed
+async function checkStorageForResults() {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['lastAddToCartResults'], (result) => {
+            const storedData = result.lastAddToCartResults;
+            
+            if (storedData) {
+                // Check if results are recent (within last 10 seconds)
+                const isRecent = (Date.now() - storedData.timestamp) < 10000;
+                
+                if (isRecent) {
+                    console.log('Found recent stored results:', storedData);
+                    
+                    // Clear the stored results after retrieving
+                    chrome.storage.local.remove(['lastAddToCartResults']);
+                    
+                    if (storedData.results) {
+                        resolve(storedData.results);
+                    } else if (storedData.error) {
+                        // Convert stored error back to rejected promise
+                        resolve([{
+                            success: false,
+                            error: storedData.error,
+                            title: 'Navigation Error'
+                        }]);
+                    } else {
+                        resolve(null);
+                    }
+                } else {
+                    console.log('Stored results are too old, ignoring');
+                    resolve(null);
+                }
             } else {
-                reject(new Error('Failed to add products to cart'));
+                console.log('No stored results found');
+                resolve(null);
             }
         });
     });
+}
+
+// Content script management functions
+async function ensureContentScriptReady(tabId) {
+    return new Promise((resolve, reject) => {
+        // Try to ping the content script
+        chrome.tabs.sendMessage(tabId, { action: 'ping' }, (response) => {
+            if (chrome.runtime.lastError) {
+                // Content script not ready, try to inject it
+                console.log('Content script not ready, injecting...');
+                injectContentScript(tabId)
+                    .then(resolve)
+                    .catch(reject);
+            } else {
+                resolve();
+            }
+        });
+    });
+}
+
+async function injectContentScript(tabId) {
+    try {
+        await chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            files: ['content.js']
+        });
+        
+        // Wait a moment for the script to initialize
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        console.log('Content script injected successfully');
+    } catch (error) {
+        console.error('Failed to inject content script:', error);
+        throw new Error('Failed to initialize extension on this page. Please refresh the page and try again.');
+    }
+}
+
+async function reinjectContentScriptAndRetry(tabId, data, action) {
+    try {
+        // Inject content script
+        await injectContentScript(tabId);
+        
+        // Retry the original message
+        return new Promise((resolve, reject) => {
+            const messageData = action === 'searchProducts' 
+                ? { action: 'searchProducts', data }
+                : { action: 'addToCart', data };
+            
+            chrome.tabs.sendMessage(tabId, messageData, (response) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(`Retry failed: ${chrome.runtime.lastError.message}`));
+                } else if (response && response.success) {
+                    if (action === 'searchProducts') {
+                        resolve(response.products || []);
+                    } else {
+                        resolve(response.results || []);
+                    }
+                } else {
+                    reject(new Error(response?.error || `Failed to ${action} after retry`));
+                }
+            });
+        });
+    } catch (error) {
+        throw new Error(`Failed to recover from connection error: ${error.message}`);
+    }
 }
 
 // UI Helper functions
